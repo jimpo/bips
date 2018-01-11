@@ -260,7 +260,7 @@ range of blocks. The message contains the following fields:
 
 # Nodes SHOULD NOT send <code>getcfheaders</code> unless the peer has advertised support for this filter type with a <code>cftypes</code> message. Nodes receiving <code>getcfheaders</code> with an unsupported filter type SHOULD NOT respond.
 # StopHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with that block or any descendents. A node that receives <code>getcfheaders</code> with an unknown StopHash SHOULD NOT respond.
-# The height of the block with hash StopHash MUST be greater than or equal to StartHeight, and the difference MUST be strictly less than 2,500.
+# The height of the block with hash StopHash MUST be greater than or equal to StartHeight, and the difference MUST be strictly less than 2,000.
 
 ==== cfheaders ====
 <code>cfheaders</code> is sent in response to <code>getcfheaders</code>. Instead
@@ -302,7 +302,7 @@ headers. The message contains the following fields:
 |}
 
 # The FilterType and StopHash SHOULD match the fields in the <code>getcfheaders</code> request.
-# FilterHashesLength MUST NOT be greater than 2,500.
+# FilterHashesLength MUST NOT be greater than 2,000.
 # FilterHashes MUST have one entry for each block on the chain terminating with tip StopHash, starting with the block at height StartHeight. The entries MUST be the filter hashes of the given type for each block in that range, in ascending order by height.
 # PreviousFilterHeader MUST be set to the previous filter header of first block in the requested range.
 
@@ -324,31 +324,20 @@ contains the following fields:
 | 1
 | Filter type for which headers are requested
 |-
-| StartHeight
-| uint32
-| 4
-| The height of the first block in the requested range
-|-
 | StopHash
 | [32]byte
 | 32
 | The hash of the last block in the chain that headers are requested for
-|-
-| Interval
-| uint32
-| 4
-| The interval between the height of successive filter headers
 |}
 
 # Nodes SHOULD NOT send <code>getcfcheckpts</code> unless the peer has advertised support for this filter type with a <code>cftypes</code> message. Nodes receiving <code>getcfcheckpts</code> with an unsupported filter type SHOULD NOT respond.
 # StopHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with any descendent blocks. A node that receives <code>getcfcheckpts</code> with an unknown StopHash SHOULD NOT respond.
-# The height of the block with hash StopHash MUST be greater than or equal to StartHeight, and the difference MUST be strictly less than 2,500 * Interval. This ensures the <code>cfcheckpts</code> message sent in response will not have more than 2,500 headers.
 
 ==== cfcheckpts ====
 <code>cfcheckpts</code> is sent in response to <code>getcfcheckpts</code>. The
 filter headers included are the set of all filter headers on the requested chain
-where the height equals the start height plus a multiple of the interval. The
-message contains the following fields:
+where the height is a positive multiple of 1,000. The message contains the
+following fields:
 
 {| class="wikitable"
 ! Field Name
@@ -361,20 +350,10 @@ message contains the following fields:
 | 1
 | Filter type for which headers are requested
 |-
-| StartHeight
-| uint32
-| 4
-| The height of the first block in the requested range
-|-
 | StopHash
 | [32]byte
 | 32
 | The hash of the last block in the chain that headers are requested for
-|-
-| Interval
-| uint32
-| 4
-| The interval between the height of successive filter headers
 |-
 | FilterHeadersLength
 | CompactSize
@@ -384,12 +363,11 @@ message contains the following fields:
 | FilterHeaders
 | [][32]byte
 | FilterHeadersLength * 32
-| The filter headers at the requested intervals
+| The filter headers at intervals of 1,000
 |}
 
-# The FilterType, StartHeight, StopHash, and Interval SHOULD match the fields in the <code>getcfcheckpts</code> request.
-# FilterHeadersLength MUST NOT be greater than 2,500.
-# FilterHeaders MUST have one entry for each block on the chain terminating in StopHash, where the the difference between the height and StartHeight is a non-negative multiple of Interval. The entries MUST be the filter headers of the given type for each such block, in ascending order by height.
+# The FilterType and StopHash SHOULD match the fields in the <code>getcfcheckpts</code> request.
+# FilterHeaders MUST have exactly one entry for each block on the chain terminating in StopHash, where the block height is a multiple of 1,000 greater than 0. The entries MUST be the filter headers of the given type for each such block, in ascending order by height.
 
 === Node Operation ===
 
@@ -399,7 +377,9 @@ index of the blockchain. For each new block that is connected to the main chain,
 nodes SHOULD generate filters for all supported types and persist them. Nodes
 that are missing filters and are already synced with the blockchain SHOULD
 reindex the chain upon start-up, constructing filters for each block from
-genesis to the current tip.
+genesis to the current tip. They also SHOULD keep every checkpoint header in
+memory, so that <code>getcfcheckpts</code> requests do not result in many
+random-access disk reads.
 
 Nodes SHOULD NOT generate filters dynamically on request, as malicious peers may
 be able to perform DoS attacks by requesting small filters derived from large
@@ -424,9 +404,10 @@ Once a client's block headers are in sync, it SHOULD download and verify filter
 headers for all blocks and filter types that it might later download. The client
 SHOULD send <code>getcfheaders</code> messages to peers and derive and store the
 filter headers for each block. The client MAY first fetch headers at evenly
-spaced intervals in the range of filter headers it will download by sending
-<code>getcfcheckpts</code>. The header checkpoints allow the client to download
-filter headers for different intervals from multiple peers in parallel.
+spaced intervals of 1,000 by sending <code>getcfcheckpts</code>. The header
+checkpoints allow the client to download filter headers for different intervals
+from multiple peers in parallel, verifying each range of 1,000 headers against
+the checkpoints.
 
 Unless securely connected to a trusted peer that is serving filter headers, the
 client SHOULD connect to multiple outbound peers that support each filter type
@@ -475,6 +456,12 @@ commitments to derived block filters, so light clients can verify authenticity
 given block headers and some additional witness data. This would require a
 network-wide change to the Bitcoin consensus rules, however, whereas this
 document proposes a solution purely at the P2P layer.
+
+The constant interval of 1,000 blocks between checkpoints was chosen so that,
+given the current chain height and rate of growth, the size of a
+<code>cfcheckpts</code> message is not drastically from a
+<code>cfheaders</code> between two checkpoints. Also, 1,000 is a nice round
+number, at least to those of us who think in decimal.
 
 == Compatibility ==
 
