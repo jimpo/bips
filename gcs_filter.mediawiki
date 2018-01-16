@@ -1,6 +1,6 @@
 <pre>
 BIP: XXX
-Layer: Applications
+Layer: Peer Services
 Title: Compact Block Filters for Light Clients
 Author: Olaoluwa Osuntokun <laolu32@gmail.com>
         Alex Akselrod <alex@akselrod.org>
@@ -24,11 +24,12 @@ enables basic wallets and applications with more advanced smart contracts.
 
 == Motivation ==
 
-BIP YYY defines a light client protocol based on deterministic filters of block
-content. The filters are designed to minimize the expected bandwidth consumed by
-light clients, downloading filters and full blocks. This document defines two
-initial filter types, ''basic'' and ''extended'', to provide support for
-advanced applications while reducing the filter size for regular wallets.
+[[client_side_filtering.mediawiki|BIP YYY]] defines a light client protocol
+based on deterministic filters of block content. The filters are designed to
+minimize the expected bandwidth consumed by light clients, downloading filters
+and full blocks. This document defines two initial filter types, ''basic'' and
+''extended'', to provide support for advanced applications while reducing the
+filter size for regular wallets.
 
 == Definitions ==
 
@@ -119,13 +120,13 @@ hashed_set_construct(raw_items: [][]byte, P: uint, k: [16]byte) -> []uint64:
 ==== Golomb-Rice Coding ====
 
 Instead of writing the items in the hashed set directly to the filter, greater
-compression is achieved by only writing the differences between successive items
-in sorted order. Since the items are distributed uniformly, it can be shown that
-the differences resemble a geometric
+compression is achieved by only writing the differences between successive
+items in sorted order. Since the items are distributed uniformly, it can be
+shown that the differences resemble a geometric
 distribution<ref>https://en.wikipedia.org/wiki/Geometric_distribution</ref>.
-''Golomb-Rice
-coding''<ref>https://en.wikipedia.org/wiki/Golomb_coding#Rice_coding</ref> is a
-technique that optimally compresses geometrically distributed values.
+''Golomb-Rice''
+''coding''<ref>https://en.wikipedia.org/wiki/Golomb_coding#Rice_coding</ref>
+is a technique that optimally compresses geometrically distributed values.
 
 With Golomb-Rice, a value is split into a quotient and remainder modulo
 <code>2^P</code>, which are encoded separately. The quotient <code>q</code> is
@@ -301,6 +302,17 @@ includes it as a prefix, written as a CompactSize. Thus, the complete
 serialization of a filter is:
 * <code>N</code>, encoded as a CompactSize
 * The bytes of the compressed filter itself
+
+==== Signaling ====
+
+This BIP allocates a new service bit:
+
+{| class="wikitable"
+|-
+| NODE_COMPACT_FILTERS
+| style="white-space: nowrap;" | <code>1 << 6</code>
+| If enabled, the node MUST respond to all BIP YYY messages for filter types <code>0x00</code> and <code>0x01</code>
+|}
 
 == Compatibility ==
 

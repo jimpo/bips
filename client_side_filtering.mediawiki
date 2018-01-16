@@ -54,12 +54,12 @@ matches the filter. The client then requests relevant transactions from the peer
 along with Merkle proofs of inclusion in the blocks containing them, which are
 verified against the block headers. The Bloom filters match data such as client
 addresses and unspent outputs, and the filter size must be carefully tuned to
-balance the false positive rate with amount of information leaked to peer. It
+balance the false positive rate with the amount of information leaked to peer. It
 has been shown, however, that most implementations available offer virtually
-''zero'' privacy to wallets and other
+''zero privacy'' to wallets and other
 applications<ref>https://eprint.iacr.org/2014/763.pdf</ref><ref>https://jonasnick.github.io/blog/2015/02/12/privacy-in-bitcoinj/</ref>.
 Additionally, malicious full nodes serving light clients can omit critical data
-with little risk of detection, which is unacceptable for certain applications
+with little risk of detection, which is unacceptable for some applications
 (such as Lightning Network clients) that must respond to certain on-chain
 events. Finally, honest nodes servicing BIP 37 light clients may incur
 significant I/O and CPU resource usage due to maliciously crafted Bloom filters,
@@ -69,18 +69,19 @@ protocol<ref>https://github.com/bitcoin/bips/blob/master/bip-0111.mediawiki</ref
 
 The alternative detailed in this document can be seen as the opposite of BIP 37:
 instead of the client sending a filter to a full node peer, full nodes generate
-deterministic filters on block data that are served to light clients. A client
-can then download an entire block if the filter matches the data it is watching
-for. Since filters are deterministic, they only need to be constructed once and
-stored on disk, whenever a new block is connected to the chain. This keeps the
-computation required to serve filters minimal, and eliminates the I/O asymmetry
-that makes BIP 37 enabled nodes vulnerable. Clients also get better assurance of
-seeing all relevant transactions because they can check the validity of filters
-received from peers more easily than they can check completeness of filtered
-blocks. Finally, client privacy is improved because blocks can be downloaded
-from ''any source'', so that no one peer gets complete information on the data
-required by a client. Extremely privacy conscious light clients may opt to
-anonymously fetch blocks using advanced techniques such a Private Information
+deterministic filters on block data that are served to the client. A light
+client can then download an entire block if the filter matches the data it is
+watching for. Since filters are deterministic, they only need to be constructed
+once and stored on disk, whenever a new block is connected to the chain. This
+keeps the computation required to serve filters minimal, and eliminates the I/O
+asymmetry that makes BIP 37 enabled nodes vulnerable. Clients also get better
+assurance of seeing all relevant transactions because they can check the
+validity of filters received from peers more easily than they can check
+completeness of filtered blocks. Finally, client privacy is improved because
+blocks can be downloaded from ''any source'', so that no one peer gets complete
+information on the data required by a client. Extremely privacy conscious light
+clients may opt to anonymously fetch blocks using advanced techniques such a
+Private Information
 Retrieval<ref>https://en.wikipedia.org/wiki/Private_information_retrieval</ref>.
 
 == Definitions ==
@@ -109,8 +110,10 @@ filter as well as the method of filter construction/querying. In this model,
 full nodes generate one filter per block per filter type supported.
 
 Each type is identified by a one byte code, and specifies the contents and
-serialization format of the filter. The initial filter types are defined
-separately in BIP XXX<ref>gcs_block_filter.mediawiki</ref>.
+serialization format of the filter. A full node MAY signal support for
+particular filter types using service bits. The initial filter types are defined
+separately in BIP XXX<ref>gcs_block_filter.mediawiki</ref>, and one service bit
+is allocated to signal support for them.
 
 === Filter Headers ===
 
@@ -133,93 +136,59 @@ are computed as the double-SHA256 of the previous filter header concatenated
 with the filter hash. The previous filter header used to calculate that of the
 genesis block is defined to be the 32-byte array of 0's.
 
-=== Service Bit ===
-
-This BIP allocates a new service bit:
-
-{| class="wikitable"
-|-
-| NODE_COMPACT_FILTERS
-| <code>1 << 6</code>
-| If enabled, the node MUST respond to <code>getcftypes</code> queries
-|}
-
 === New Messages ===
 
-==== getcftypes ====
-<code>getcftypes</code> is used to query which filter types are supported by a
-full node. The message has no payload.
-
-# Nodes SHOULD NOT send <code>getcftypes</code> unless the peer is signaling support for this BIP via service bit.
-# Nodes signaling support for this BIP SHOULD respond to <code>getcftypes</code> with a <code>cftypes</code> message.
-
-==== cftypes ====
-<code>cftypes</code> is sent in response to <code>getcftypes</code>. The message contains the following fields:
+==== getcfilters ====
+<code>getcfilters</code> is used to request the compact filters of a particular
+type for a particular range of blocks. The message contains the following
+fields:
 
 {| class="wikitable"
 ! Field Name
 ! Data Type
 ! Byte Size
 ! Description
-|-
-| SupportedFiltersLength
-| CompactSize
-| 1
-| The number of supported filters
-|-
-| SupportedFilters
-| []byte
-| SupportedFiltersLength
-| A vector of bytes representing supported filter types
-|}
-
-# The <code>cftypes</code> message SHOULD list all filter types that a node is willing to serve.
-# Nodes MUST NOT respond with duplicate filter types.
-# Nodes that include a block filter type in SupportedFilters MUST respond to valid <code>getcfilter</code>, <code>getcfheaders</code>, and <code>getcfcheckpts</code> requests with that filter type.
-
-==== getcfilter ====
-<code>getcfilter</code> is used to request the compact filter of a particular
-type for a particular block. The message contains the following fields:
-
-{| class="wikitable"
-! Field Name
-! Data Type
-! Byte Size
-! Description
-|-
-| BlockHash
-| [32]byte
-| 32
-| Hash of the block for which the filter is requested
 |-
 | FilterType
 | byte
 | 1
-| Type of the requested filter
+| Filter type for which headers are requested
+|-
+| StartHeight
+| uint32
+| 4
+| The height of the first block in the requested range
+|-
+| StopHash
+| [32]byte
+| 32
+| The hash of the last block in the requested range
 |}
 
-# Nodes SHOULD NOT send <code>getcfheaders</code> unless the peer has advertised support for this filter type with a <code>cftypes</code> message. Nodes receiving <code>getcfheaders</code> with an unsupported filter type SHOULD NOT respond.
-# BlockHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with that block or any descendents. A node that receives <code>getcfilter</code> with an unknown BlockHash SHOULD NOT respond.
+# Nodes SHOULD NOT send <code>getcfilters</code> unless the peer has signaled support for this filter type. Nodes receiving <code>getcfilters</code> with an unsupported filter type SHOULD NOT respond.
+# StopHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with that block or any descendents. A node that receives <code>getcfilters</code> with an unknown StopHash SHOULD NOT respond.
+# The height of the block with hash StopHash MUST be greater than or equal to StartHeight, and the difference MUST be strictly less than 1,000.
+# The receiving node MUST respond to valid requests by sending one <code>cfilter</code> message for each block in the requested range, sequentially in order by block height.
 
 ==== cfilter ====
-<code>cfilter</code> is sent in response to <code>getcfilter</code>. The message
-contains the following fields:
+<code>cfilter</code> is sent in response to <code>getcfilters</code>, one for
+each block in the requested range. The message contains the following fields:
 
 {| class="wikitable"
 ! Field Name
 ! Data Type
 ! Byte Size
 ! Description
-|-
-| BlockHash
-| [32]byte
-| 32
-| Block hash of the Bitcoin block for which the filter is being returned
 |-
 | FilterType
 | byte
 | 1
 | Byte identifying the type of filter being returned
+|-
+| BlockHash
+| [32]byte
+| 32
+| Block hash of the Bitcoin block for which the filter is being returned
 |-
 | NumFilterBytes
 | CompactSize
@@ -231,6 +200,8 @@ contains the following fields:
 | NumFilterBytes
 | The serialized compact filter for this block
 |}
+
+# The FilterType SHOULD match the field in the <code>getcfilters</code> request, and BlockHash must correspond to a block that is an ancestor of StopHash with height greater than or equal to StartHeight.
 
 ==== getcfheaders ====
 <code>getcfheaders</code> is used to request verifiable filter headers for a
@@ -258,7 +229,7 @@ range of blocks. The message contains the following fields:
 | The hash of the last block in the requested range
 |}
 
-# Nodes SHOULD NOT send <code>getcfheaders</code> unless the peer has advertised support for this filter type with a <code>cftypes</code> message. Nodes receiving <code>getcfheaders</code> with an unsupported filter type SHOULD NOT respond.
+# Nodes SHOULD NOT send <code>getcfheaders</code> unless the peer has signaled support for this filter type. Nodes receiving <code>getcfheaders</code> with an unsupported filter type SHOULD NOT respond.
 # StopHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with that block or any descendents. A node that receives <code>getcfheaders</code> with an unknown StopHash SHOULD NOT respond.
 # The height of the block with hash StopHash MUST be greater than or equal to StartHeight, and the difference MUST be strictly less than 2,000.
 
@@ -307,11 +278,11 @@ headers. The message contains the following fields:
 # PreviousFilterHeader MUST be set to the previous filter header of first block in the requested range.
 
 ==== getcfcheckpts ====
-<code>getcfcheckpts</code> is used to request filter headers at evenly spaced
+<code>getcfcheckpts/code> is used to request filter headers at evenly spaced
 intervals over a range of blocks. Clients may use filter hashes from
 <code>getcfheaders</code> to connect these checkpoints, as is described in the
-Light Client Syncing section below. The <code>getcfcheckpts</code> message
-contains the following fields:
+[[#client-operation|Client Operation]] section below. The
+<code>getcfcheckpts</code> message contains the following fields:
 
 {| class="wikitable"
 ! Field Name
@@ -330,7 +301,7 @@ contains the following fields:
 | The hash of the last block in the chain that headers are requested for
 |}
 
-# Nodes SHOULD NOT send <code>getcfcheckpts</code> unless the peer has advertised support for this filter type with a <code>cftypes</code> message. Nodes receiving <code>getcfcheckpts</code> with an unsupported filter type SHOULD NOT respond.
+# Nodes SHOULD NOT send <code>getcfcheckpts</code> unless the peer has signaled support for this filter type. Nodes receiving <code>getcfcheckpts</code> with an unsupported filter type SHOULD NOT respond.
 # StopHash MUST be known to belong to a block accepted by the receiving peer. This is the case if the peer had previously sent a <code>headers</code> or <code>inv</code> message with any descendent blocks. A node that receives <code>getcfcheckpts</code> with an unknown StopHash SHOULD NOT respond.
 
 ==== cfcheckpts ====
